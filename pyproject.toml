@@ -1,0 +1,14 @@
+[project]
+name = "ecomma"
+version = "0.1.0"
+
+dependencies = [
+    "pandas",
+    "pandera",
+    "openpyxl",
+    "faker",
+    "requests"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
