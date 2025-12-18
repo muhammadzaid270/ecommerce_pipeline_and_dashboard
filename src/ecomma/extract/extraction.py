@@ -45,12 +45,13 @@ def save_raw_json(file_path, data, resource):
     '''This function will save the raw data fetched from the API into a JSON file with a timestamped filename. It takes in the file path, data to be saved, and the resource type for naming from runner module.'''
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f"{resource}_{timestamp}.json"
+    filename = f"{resource}_{timestamp}.jsonl"
     file_path = file_path / filename
-    
+
     try:
-        with open(file_path, 'w') as f:
-            json.dump(data, f, indent=4)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            for item in data:
+                f.write(json.dumps(item, ensure_ascii=False) + '\n')
         logger.info(f"SUCCESS: Saved raw data to {file_path}")
     except Exception as e:
-        logger.error(f"Failed to save JSON: {e}")
+        logger.error(f"Failed to save JSONL: {e}")
