@@ -1,0 +1,57 @@
+import requests
+import logging
+import json
+import time
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+def fetch_data(base_url, resource):
+
+    '''This function will get a url and resource such as pages or orders from the runner module which will pass it upon call. It will then paginate through the results and return a list of all items found.'''
+
+    all_items = []
+    skip = 0
+    limit = 30
+
+    while True:
+        url = f"{base_url}/{resource}?limit={limit}&skip={skip}"
+
+        try:
+            response = requests.get(url)
+
+            if response.status_code == 200:
+                data = response.json()
+                items = data.get(resource, [])
+                if not items:
+                    break
+
+                all_items.extend(items)
+                skip += limit
+                logger.info(f"Fetched {len(items)} items, total so far: {len(all_items)}")
+                time.sleep(0.5)
+                
+            else:
+                logger.error(f"Request failed with status code: {response.status_code}")
+                break
+        except Exception as e:
+            logger.error(f"An error occurred: {e}")
+            break
+    return all_items
+
+
+def save_raw_json(file_path, data, resource):
+
+    '''This function will save the raw data fetched from the API into a JSON file with a timestamped filename. It takes in the file path, data to be saved, and the resource type for naming from runner module.'''
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f"{resource}_{timestamp}.jsonl"
+    file_path = file_path / filename
+
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            for item in data:
+                f.write(json.dumps(item, ensure_ascii=False) + '\n')
+        logger.info(f"SUCCESS: Saved raw data to {file_path}")
+    except Exception as e:
+        logger.error(f"Failed to save JSONL: {e}")
