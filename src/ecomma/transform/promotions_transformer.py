@@ -18,6 +18,8 @@ class PromotionsTransformer(BaseTransformer):
         pd.DataFrame,
         pd.DataFrame,
         pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
         pd.DataFrame
     ]:
         self.df = (
@@ -33,8 +35,10 @@ class PromotionsTransformer(BaseTransformer):
         agg_status = self.aggregate_by("Status")
 
         start_daily = self.agg_date("Start_Date", "D")
+        start_weekly = self.agg_date("Start_Date", "W")
         start_monthly = self.agg_date("Start_Date", "M")
         end_daily = self.agg_date("End_Date", "D")
+        end_weekly = self.agg_date("End_Date", "W")
         end_monthly = self.agg_date("End_Date", "M")
 
         return (
@@ -45,7 +49,9 @@ class PromotionsTransformer(BaseTransformer):
             agg_status,
             start_daily,
             start_monthly,
+            start_weekly,
             end_daily,
+            end_weekly,
             end_monthly
         )
 
@@ -55,7 +61,7 @@ class PromotionsTransformer(BaseTransformer):
         "Promo_Code",
         "Promo_Type",
         "Category",
-        "Status"
+        "Status",
         # Numeric Columns
         "Discount_Value",
         "Min_Purchase",
@@ -66,14 +72,16 @@ class PromotionsTransformer(BaseTransformer):
         "End_Date"
     ]
 
-    def _drop_rows(self, nullable_cols: list[str] = ["Promo_Code", "Discount_Value", "Category", "Min_Purchase", "Usage_Limit"]) -> None:
+    def _drop_rows(self) -> pd.DataFrame:
         initial_count = len(self.df)
+        nullable_cols = ["Promo_Code", "Discount_Value", "Category", "Min_Purchase", "Usage_Limit"]
         notnull_cols = [col for col in self.df.columns if col not in nullable_cols]
         self.df.dropna(subset=notnull_cols, inplace=True)
         final_count = len(self.df)
         logging.info(f"Dropped {initial_count - final_count} rows due to missing critical fields.")
+        return self.df
 
-    def _normalize_data(self) -> None:
+    def _normalize_data(self) -> pd.DataFrame:
         self.df.columns = (
             self.df.columns
             .str.strip()
@@ -84,29 +92,30 @@ class PromotionsTransformer(BaseTransformer):
         str_cols = ["Promo_ID", "Promo_Code", "Promo_Type", "Category", "Status"]
         self.df[str_cols] = (
             self.df[str_cols]
-            .astype("string")
+            .astype('string')
             .str.strip()
             .str.title()
         )
 
         num_cols = ["Discount_Value", "Min_Purchase", "Usage_Limit", "Times_Used"]
-        self.df[num_cols] = (
-            self.df[num_cols]
-            .astype("int64")
-            .replace(r"[^\d.-]", "", regex=True)
-            .apply(pd.to_numeric, errors="coerce")
-        )
+        for col in num_cols:
+            self.df[col] = pd.to_numeric(
+                self.df[col].astype('string').str.extract(r'(-?\d+(?:\.\d+)?)', expand=False),
+                errors='coerce'
+            )
         logging.info("Normalized promotions data columns.")
+        return self.df
 
-    def _normalize_dates(self) -> None:
+    def _normalize_dates(self) -> pd.DataFrame:
         self.df["Start_Date"] = pd.to_datetime(self.df["Start_Date"], errors="coerce")
         self.df["End_Date"] = pd.to_datetime(self.df["End_Date"], errors="coerce")
         logging.info("Converted Start_Date and End_Date to datetime format.")
+        return self.df
     
     def validate(self, schema) -> None:
         try:
             schema.validate(self.df, lazy=True)
-            logging.info("Promotions data validation sucessful.")
+            logging.info("Promotions data validation successful.")
         except pd.errors.SchemaErrors as e:
             logger.error(f"Marketing Spent data validation errors:\n{e.failure_cases}")
             raise
