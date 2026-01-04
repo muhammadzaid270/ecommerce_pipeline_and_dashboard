@@ -9,7 +9,7 @@ class PromotionsTransformer(BaseTransformer):
     def __init__(self, file_path: str) -> None:
         super().__init__(file_path)
 
-    def transform(self) -> Tuple[
+    def transform(self, schema: pd.DataFrame) -> Tuple[
         pd.DataFrame,
         pd.DataFrame,
         pd.DataFrame,
@@ -27,7 +27,7 @@ class PromotionsTransformer(BaseTransformer):
             .pipe(self._drop_rows)
             .pipe(self._normalize_data)
             .pipe(self._normalize_dates)
-            .pipe(self.validate, schema=None)
+            .pipe(self.validate, schema=schema)
         )
         agg_promo_code = self.aggregate_by("Promo_Code")
         agg_promo_type = self.aggregate_by("Promo_Type")
