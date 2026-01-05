@@ -4,6 +4,7 @@ from typing import Tuple
 
 logger = logging.getLogger(__name__)
 
+#do it later: move some generic methods here from child classes such as _drop_rows, _validate etc.
 class BaseTransformer:
     def __init__(self, file_path) -> None:
         self.file_path = file_path
