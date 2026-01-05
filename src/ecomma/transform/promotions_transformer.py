@@ -1,7 +1,8 @@
 import logging
 import pandas as pd
+import pandera as pa
 from ecomma.transform import BaseTransformer
-from typing import Tuple
+from typing import Tuple, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -9,55 +10,41 @@ class PromotionsTransformer(BaseTransformer):
     def __init__(self, file_path: str) -> None:
         super().__init__(file_path)
 
-    def transform(self, schema: pd.DataFrame) -> Tuple[
-        pd.DataFrame,
-        pd.DataFrame,
-        pd.DataFrame,
-        pd.DataFrame,
-        pd.DataFrame,
-        pd.DataFrame,
-        pd.DataFrame,
-        pd.DataFrame,
-        pd.DataFrame,
-        pd.DataFrame,
-        pd.DataFrame
-    ]:
-        self.df = (
+    def transform(self, schema: pa.DataFrameSchema) -> Dict[str, Any]:
+        df = (
             self.df
             .pipe(self._drop_rows)
             .pipe(self._normalize_data)
             .pipe(self._normalize_dates)
-            .pipe(self.validate, schema=schema)
+            .pipe(self._validate, schema=schema)
         )
-        agg_promo_code = self.aggregate_by("Promo_Code")
-        agg_promo_type = self.aggregate_by("Promo_Type")
-        agg_category = self.aggregate_by("Category")
-        agg_status = self.aggregate_by("Status")
+        self.df = df
 
-        start_daily = self.agg_date("Start_Date", "D")
-        start_weekly = self.agg_date("Start_Date", "W")
-        start_monthly = self.agg_date("Start_Date", "M")
-        end_daily = self.agg_date("End_Date", "D")
-        end_weekly = self.agg_date("End_Date", "W")
-        end_monthly = self.agg_date("End_Date", "M")
+        output: Dict[str, Any] = {
+            "clean_df": df,
+            "agg": {
+                "by_promo_code": self.agg_by("Promo_Code"),
+                "by_promo_type": self.agg_by("Promo_Type"),
+                "by_category": self.agg_by("Category"),
+                "by_status": self.agg_by("Status"),
+            },
+            "start_over_time": {
+                "daily": self.agg_date("Start_Date", "D"),
+                "weekly": self.agg_date("Start_Date", "W-MON"),
+                "monthly": self.agg_date("Start_Date", "M"),
+            },
+            "end_over_time": {
+                "daily": self.agg_date("End_Date", "D"),
+                "weekly": self.agg_date("End_Date", "W-MON"),
+                "monthly": self.agg_date("End_Date", "M"),
+            },
+        }
 
-        return (
-            self.df,
-            agg_promo_code,
-            agg_promo_type,
-            agg_category,
-            agg_status,
-            start_daily,
-            start_monthly,
-            start_weekly,
-            end_daily,
-            end_weekly,
-            end_monthly
-        )
+        return output
 
     columns = [
         # String Columns
-        "Promo_ID",
+        "Promo_Id",
         "Promo_Code",
         "Promo_Type",
         "Category",
@@ -73,58 +60,58 @@ class PromotionsTransformer(BaseTransformer):
     ]
 
     def _drop_rows(self) -> pd.DataFrame:
-        initial_count = len(self.df)
+        df = self.df
+        initial_count = len(df)
         nullable_cols = ["Promo_Code", "Discount_Value", "Category", "Min_Purchase", "Usage_Limit"]
         notnull_cols = [col for col in self.df.columns if col not in nullable_cols]
-        self.df.dropna(subset=notnull_cols, inplace=True)
-        final_count = len(self.df)
+        df = df.dropna(subset=notnull_cols)
+        final_count = len(df)
         logging.info(f"Dropped {initial_count - final_count} rows due to missing critical fields.")
-        return self.df
+        return df
 
     def _normalize_data(self) -> pd.DataFrame:
-        self.df.columns = (
-            self.df.columns
-            .str.strip()
-            .str.title()
-            .replace(" ", "_")
-        )
-
-        str_cols = ["Promo_ID", "Promo_Code", "Promo_Type", "Category", "Status"]
-        self.df[str_cols] = (
-            self.df[str_cols]
-            .astype('string')
+        df = self.df
+        str_cols = ["Promo_Id", "Promo_Code", "Promo_Type", "Category", "Status"]
+        df[str_cols] = df[str_cols].astype('string')
+        df[str_cols] = (
+            df[str_cols]
             .str.strip()
             .str.title()
         )
 
         num_cols = ["Discount_Value", "Min_Purchase", "Usage_Limit", "Times_Used"]
+        df[num_cols] = df[num_cols].astype('string')
         for col in num_cols:
-            self.df[col] = pd.to_numeric(
-                self.df[col].astype('string').str.extract(r'(-?\d+(?:\.\d+)?)', expand=False),
+            df[col] = pd.to_numeric(
+                df[col].str.extract(r'(-?\d+(?:\.\d+)?)', expand=False),
                 errors='coerce'
             )
-        logging.info("Normalized promotions data columns.")
-        return self.df
+        logging.info("Normalized promotions data.")
+        return df
 
     def _normalize_dates(self) -> pd.DataFrame:
-        self.df["Start_Date"] = pd.to_datetime(self.df["Start_Date"], errors="coerce")
-        self.df["End_Date"] = pd.to_datetime(self.df["End_Date"], errors="coerce")
+        df = self.df
+        df["Start_Date"] = pd.to_datetime(df["Start_Date"], errors="coerce")
+        df["End_Date"] = pd.to_datetime(df["End_Date"], errors="coerce")
         logging.info("Converted Start_Date and End_Date to datetime format.")
-        return self.df
+        return df
     
-    def validate(self, schema) -> None:
+    def _validate(self, schema) -> None:
+        df = self.df
         try:
-            schema.validate(self.df, lazy=True)
+            schema.validate(df, lazy=True)
             logging.info("Promotions data validation successful.")
-        except pd.errors.SchemaErrors as e:
+            return df
+        except pa.errors.SchemaErrors as e:
             logger.error(f"Marketing Spent data validation errors:\n{e.failure_cases}")
             raise
 
-    def aggregate_by(self, col: str) -> pd.DataFrame:
+    def agg_by(self, col: str) -> pd.DataFrame:
+        df = self.df
         return (
-            self.df.groupby(col)
+            df.groupby(col)
             .agg(
-                promo_count=("Promo_ID", "nunique"),
+                promo_count=("Promo_Id", "nunique"),
                 total_times_used=("Times_Used", "sum"),
                 avg_times_used=("Times_Used", "mean"),
                 total_discount_given=("Discount_Value", "sum"),
@@ -139,7 +126,7 @@ class PromotionsTransformer(BaseTransformer):
         return (
             df.groupby("date_bucket")
             .agg(
-                promo_count=("Promo_ID", "nunique"),
+                promo_count=("Promo_Id", "nunique"),
                 total_times_used=("Times_Used", "sum"),
                 total_discount_given=("Discount_Value", "sum"),
                 active_promos=("Status", lambda x: (x == "Active").sum()),
