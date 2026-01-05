@@ -2,7 +2,7 @@ import logging
 import pandas as pd
 import pandera as pa
 from ecomma.transform import BaseTransformer
-from typing import Any, Dict, Tuple, Optional
+from typing import Any, Dict, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -76,16 +76,6 @@ class OrdersTransformer(BaseTransformer):
         final_count = len(df)
 
         logger.info(f"Dropped {initial_count - final_count} rows with missing critical fields.")
-        return df
-    
-    def _col_names(self) -> pd.DataFrame:
-        df = self.df
-        df.columns = (
-            df.columns
-            .str.strip()
-            .str.title()
-            .replace(r"\s+", "_", regex=True)
-        )
         return df
     
     def _normalize_data(self) -> pd.DataFrame:
@@ -174,7 +164,7 @@ class OrdersTransformer(BaseTransformer):
         return (
             df.groupby("date_bucket")
             .agg(
-                order_count=("Order_Id", "nunique"),          # How many orders
+                order_count=("Order_Id", "nunique"),         # How many orders
                 total_amount_sum=("Total_Amount", "sum"),    # Total revenue
                 total_amount_avg=("Total_Amount", "mean"),   # Avg revenue per order
                 discount_total=("Discount_Applied", "sum"),  # Total discounts
