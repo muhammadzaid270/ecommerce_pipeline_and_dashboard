@@ -7,7 +7,9 @@ dependencies = [
     "pandera",
     "openpyxl",
     "faker",
-    "requests"
+    "requests",
+    "supabase",
+    "python-dotenv"
 ]
 
 [tool.setuptools]
