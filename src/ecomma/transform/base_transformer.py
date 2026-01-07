@@ -1,6 +1,7 @@
 import logging
 import pandas as pd
-from typing import Tuple
+import pandera as pa
+from typing import Tuple, Any
 
 logger = logging.getLogger(__name__)
 
@@ -31,3 +32,39 @@ class BaseTransformer:
         )
         # cols = df.columns.tolist()
         return df
+    
+    def _drop_rows(self, df: pd.DataFrame, notnull_cols: list[str]) -> pd.DataFrame:
+        initial_count = len(df)
+        df = df.dropna(subset=notnull_cols)
+        final_count = len(df)
+        logger.info(f"Dropped {initial_count - final_count} rows with missing critical fields.")
+        return df
+    
+    def _normalize_dates(self, df: pd.DataFrame, date_cols: list[str]) -> pd.DataFrame:
+        for col in date_cols:
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+        return df
+    
+    def _validate(self, df: pd.DataFrame, schema: pa.DataFrameSchema) -> pd.DataFrame:
+        if schema is None:
+            raise ValueError("No schema provided for validation. Must provide a valid pandera DataFrameSchema.")
+        try:
+            validated_df = schema.validate(df, lazy=True)
+            logger.info(f"Validated {len(validated_df)} rows successfully.")
+            return validated_df
+        
+        except pa.errors.SchemaErrors as e:
+            logger.error("Schema validation failed!")
+            logger.error(f"Number of failures: {len(e.failure_cases)}")
+                
+            # Failure cases (rows that failed validation)
+            if not e.failure_cases.empty:
+                logger.error(f"Failure cases:\n{e.failure_cases.to_string()}")
+                
+            # Schema errors
+            if e.schema_errors:
+                for col, errors in e.schema_errors.items():
+                    logger.error(f"Column '{col}' errors: {errors}")
+                
+            # Re-raise with contextual information
+            raise ValueError(f"Data validation failed with {len(e.failure_cases)} errors") from e
