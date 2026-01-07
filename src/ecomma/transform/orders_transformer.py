@@ -7,20 +7,46 @@ from typing import Any, Dict, Tuple
 logger = logging.getLogger(__name__)
 
 class OrdersTransformer(BaseTransformer):
+    # Expected columns in the orders dataframe, just for reference
+    COLUMNS = [
+        "Order_Id",
+        "User_Id",
+        "Status",
+        "Total_Amount",
+        "Subtotal_Before_Discount",
+        "Discount_Applied",
+        "Promo_Code_Used",
+        "Product_Cost",
+        "Payment_Method",
+        "Shipping_Address",
+        "Order_Date",
+        "Delivery_Date",
+    ]
+
+    NULLABLE_COLS: list[str] = ["Promo_Code_Used", "Discount_Applied", "Delivery_Date"]
+    DATE_COLS: list[str] = ["Order_Date", "Delivery_Date"]
+    NUMERIC_COLS: list[str] = ["Total_Amount", "Subtotal_Before_Discount", "Discount_Applied", "Product_Cost"]
+    ID_COLS: list[str] = ["Order_Id", "User_Id"]
+    PROMO_COLS: list[str] = ["Promo_Code_Used", "Promo_Code_Used_Norm"]
+
     def __init__(self, file_path) -> None:
         super().__init__(file_path)
     
+    #fix-me: Move outputs to a seperate method (_build_outputs)
     def transform(self, schema: pa.DataFrameSchema) -> Dict[str, Any]:
+        NON_NULL_COLS = [col for col in self.df.columns if col not in self.NULLABLE_COLS]
+
         df = (
             self.df
-            .pipe(self._col_names)
-            .pipe(self._drop_rows)
+            .pipe(self._drop_rows, NON_NULL_COLS)
             .pipe(self._normalize_data)
-            .pipe(self._normalize_dates)
-            .pipe(self._validate, schema=schema)
+            .pipe(self._normalize_dates, self.DATE_COLS)
+            .pipe(self._validate, schema)
         )
         self.df = df
+        return self._build_outputs(df)
 
+    def _build_outputs(self, df: pd.DataFrame) -> Dict[str, Any]:
         outputs: Dict[str, Any] = {
             "clean_df": df,
             "agg": {
@@ -51,60 +77,39 @@ class OrdersTransformer(BaseTransformer):
 
         return outputs
 
-    # Expected columns in the orders dataframe, just for reference
-    columns = [
-        "Order_Id",
-        "User_Id",
-        "Status",
-        "Total_Amount",
-        "Subtotal_Before_Discount",
-        "Discount_Applied",
-        "Promo_Code_Used",
-        "Product_Cost",
-        "Payment_Method",
-        "Shipping_Address",
-        "Order_Date",
-        "Delivery_Date",
-    ]
-
-    def _drop_rows(self, df: pd.DataFrame) -> pd.DataFrame:
-        nullable_cols = ["Promo_Code_Used", "Discount_Applied", "Delivery_Date"]
-        notnull_cols = [col for col in df.columns if col not in nullable_cols]
-
-        initial_count = len(df)
-        df = df.dropna(subset=notnull_cols)
-        final_count = len(df)
-
-        logger.info(f"Dropped {initial_count - final_count} rows with missing critical fields.")
-        return df
-
     def _normalize_data(self, df: pd.DataFrame) -> pd.DataFrame:
         # Columns
-        ID = ["Order_Id", "User_Id"]
-        DATE = ["Order_Date", "Delivery_Date"]
-        NUM = ["Total_Amount", "Subtotal_Before_Discount", "Discount_Applied", "Product_Cost"]
-        STR = [c for c in df.columns if c not in NUM + DATE]
-        PROMO = ["Promo_Code_Used", "Promo_Code_Used_Norm"]
+        ID_COLS = self.ID_COLS
+        PROMO_COLS = self.PROMO_COLS
+        DATE_COLS = self.DATE_COLS
+        NUM_COLS = self.NUMERIC_COLS
+        STR_COLS = [c for c in df.columns if c not in NUM_COLS + DATE_COLS]
 
         df["Promo_Code_Used_Norm"] = (
             df["Promo_Code_Used"]
             .astype("string")
+            .fillna("NO_PROMO")
             .str.strip()
             .str.replace(r"\s+", "_", regex=True)
             .str.upper()
         )
 
-        df[STR] = df[STR].astype("string")
-        for col in STR:
-            if col in ID or col in PROMO:
+        df[STR_COLS] = df[STR_COLS].astype("string")
+        for col in STR_COLS:
+            if col in ID_COLS or col in PROMO_COLS:
                 df[col] = df[col].str.strip()
             else:
-                df[col] = df[col].str.strip().str.title()
+                df[col] = (
+                    df[col]
+                    .str.strip()
+                    .str.replace(r"\s+", "_", regex=True)
+                    .str.title()
+                )
 
         # Numeric Cleanup
-        df[NUM] = df[NUM].astype("string")
-        df[NUM] = (
-            df[NUM]
+        df[NUM_COLS] = df[NUM_COLS].astype("string")
+        df[NUM_COLS] = (
+            df[NUM_COLS]
             .str.replace(r"[^\d\.\-]", "", regex=True)
             .apply(pd.to_numeric, errors="coerce")
         )
@@ -113,35 +118,6 @@ class OrdersTransformer(BaseTransformer):
 
         logger.info("Cleaned orders data")
         return df
-
-    def _normalize_dates(self, df: pd.DataFrame) -> pd.DataFrame:
-        df["Order_Date"] = pd.to_datetime(df["Order_Date"], errors="coerce")
-        df["Delivery_Date"] = pd.to_datetime(df["Delivery_Date"], errors="coerce")
-        logger.info("Converted Order_Date and Delivery_Date to datetime format.")
-        return df
-
-    # Fix_me: Add None check for schema (prevents runtime crash)
-    def _validate(self, df: pd.DataFrame, schema: pa.DataFrameSchema) -> pd.DataFrame:
-        try:
-            validated_df = schema.validate(df, lazy=True)
-            logger.info(f"Validated {len(validated_df)} rows successfully.")
-            return validated_df
-        
-        except pa.errors.SchemaErrors as e:
-            logger.error("Schema validation failed!")
-            logger.error(f"Number of failures: {len(e.failure_cases)}")
-                
-            # Failure cases (rows that failed validation)
-            if not e.failure_cases.empty:
-                logger.error(f"Failure cases:\n{e.failure_cases.to_string()}")
-                
-            # Schema errors
-            if e.schema_errors:
-                for col, errors in e.schema_errors.items():
-                    logger.error(f"Column '{col}' errors: {errors}")
-                
-            # Re-raise with contextual information
-            raise ValueError(f"Data validation failed with {len(e.failure_cases)} errors") from e
 
     def _agg_by(self, df: pd.DataFrame, col: str) -> pd.DataFrame:
         return (
