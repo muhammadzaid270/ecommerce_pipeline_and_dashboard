@@ -24,24 +24,25 @@ class OrdersTransformer(BaseTransformer):
         outputs: Dict[str, Any] = {
             "clean_df": df,
             "agg": {
-                "by_user": self.agg_by("User_Id"),
-                "by_status": self.agg_by("Status"),
-                "by_promo_code": self.agg_by("Promo_Code_Used"),
-                "by_payment_method": self.agg_by("Payment_Method"),
+                "by_user": self._agg_by(df, "User_Id"),
+                "by_status": self._agg_by(df, "Status"),
+                "by_promo_code_raw": self._agg_by(df, "Promo_Code_Used"),
+                "by_promo_code_norm": self._agg_by(df, "Promo_Code_Used_Norm"),
+                "by_payment_method": self._agg_by(df, "Payment_Method"),
             },
             "orders_over_time": {
-                "daily": self.agg_date("Order_Date", "D"),
-                "weekly": self.agg_date("Order_Date", "W-MON"),
-                "monthly": self.agg_date("Order_Date", "M"),
+                "daily": self._agg_date(df, "Order_Date", "D"),
+                "weekly": self._agg_date(df, "Order_Date", "W-MON"),
+                "monthly": self._agg_date(df, "Order_Date", "M"),
             },
             "delivery_over_time": {
-                "daily": self.agg_date("Delivery_Date", "D"),
-                "weekly": self.agg_date("Delivery_Date", "W-MON"),
-                "monthly": self.agg_date("Delivery_Date", "M"),
+                "daily": self._agg_date(df, "Delivery_Date", "D"),
+                "weekly": self._agg_date(df, "Delivery_Date", "W-MON"),
+                "monthly": self._agg_date(df, "Delivery_Date", "M"),
             },
         }
 
-        total_revenue, total_discounts, net_revenue = self.revenue(df)
+        total_revenue, total_discounts, net_revenue = self._revenue(df)
         outputs["revenue"] = {
             "total_revenue": total_revenue,
             "total_discounts": total_discounts,
@@ -66,61 +67,63 @@ class OrdersTransformer(BaseTransformer):
         "Delivery_Date",
     ]
 
-    def _drop_rows(self) -> pd.DataFrame:
-        df = self.df
+    def _drop_rows(self, df: pd.DataFrame) -> pd.DataFrame:
         nullable_cols = ["Promo_Code_Used", "Discount_Applied", "Delivery_Date"]
         notnull_cols = [col for col in df.columns if col not in nullable_cols]
 
         initial_count = len(df)
-        df.dropna(subset=notnull_cols, inplace=True)
+        df = df.dropna(subset=notnull_cols)
         final_count = len(df)
 
         logger.info(f"Dropped {initial_count - final_count} rows with missing critical fields.")
         return df
-    
-    def _normalize_data(self) -> pd.DataFrame:
-        df = self.df
-        non_str_cols = [
-            "Order_Date",
-            "Total_Amount",
-            "Subtotal_Before_Discount",
-            "Discount_Applied",
-            "Product_Cost",
-            "Delivery_Date"
-        ]
-        str_cols = [c for c in df.columns if c not in non_str_cols]
-        num_cols = ["Total_Amount", "Subtotal_Before_Discount", "Discount_Applied", "Product_Cost"]
 
-        df[str_cols] = df[str_cols].astype("string")
-        for col in str_cols:
-            df[col] = df[col].str.strip().str.title()
+    def _normalize_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        # Columns
+        ID = ["Order_Id", "User_Id"]
+        DATE = ["Order_Date", "Delivery_Date"]
+        NUM = ["Total_Amount", "Subtotal_Before_Discount", "Discount_Applied", "Product_Cost"]
+        STR = [c for c in df.columns if c not in NUM + DATE]
+        PROMO = ["Promo_Code_Used", "Promo_Code_Used_Norm"]
 
-        df[num_cols] = df[num_cols].astype("string")
-        df[num_cols] = (
-            df[num_cols]
+        df["Promo_Code_Used_Norm"] = (
+            df["Promo_Code_Used"]
+            .astype("string")
+            .str.strip()
+            .str.replace(r"\s+", "_", regex=True)
+            .str.upper()
+        )
+
+        df[STR] = df[STR].astype("string")
+        for col in STR:
+            if col in ID or col in PROMO:
+                df[col] = df[col].str.strip()
+            else:
+                df[col] = df[col].str.strip().str.title()
+
+        # Numeric Cleanup
+        df[NUM] = df[NUM].astype("string")
+        df[NUM] = (
+            df[NUM]
             .str.replace(r"[^\d\.\-]", "", regex=True)
             .apply(pd.to_numeric, errors="coerce")
         )
 
-        if "Discount_Applied" in df.columns:
-            df["Discount_Applied"] = df["Discount_Applied"].fillna(0.0)
+        df["Discount_Applied"] = df["Discount_Applied"].fillna(0.0)
 
-        logger.info("Normalized orders data")
+        logger.info("Cleaned orders data")
         return df
 
-    def _normalize_dates(self) -> pd.DataFrame:
-        df = self.df
-        if "Order_Date" in df.columns:
-            df["Order_Date"] = pd.to_datetime(df["Order_Date"], errors="coerce")
-        if "Delivery_Date" in df.columns:
-            df["Delivery_Date"] = pd.to_datetime(df["Delivery_Date"], errors="coerce")
+    def _normalize_dates(self, df: pd.DataFrame) -> pd.DataFrame:
+        df["Order_Date"] = pd.to_datetime(df["Order_Date"], errors="coerce")
+        df["Delivery_Date"] = pd.to_datetime(df["Delivery_Date"], errors="coerce")
         logger.info("Converted Order_Date and Delivery_Date to datetime format.")
         return df
 
     # Fix_me: Add None check for schema (prevents runtime crash)
-    def _validate(self, schema: pa.DataFrameSchema) -> pd.DataFrame:
+    def _validate(self, df: pd.DataFrame, schema: pa.DataFrameSchema) -> pd.DataFrame:
         try:
-            validated_df = schema.validate(self.df, lazy=True)
+            validated_df = schema.validate(df, lazy=True)
             logger.info(f"Validated {len(validated_df)} rows successfully.")
             return validated_df
         
@@ -140,9 +143,9 @@ class OrdersTransformer(BaseTransformer):
             # Re-raise with contextual information
             raise ValueError(f"Data validation failed with {len(e.failure_cases)} errors") from e
 
-    def agg_by(self, col: str) -> pd.DataFrame:
+    def _agg_by(self, df: pd.DataFrame, col: str) -> pd.DataFrame:
         return (
-            self.df.groupby(col)
+            df.groupby(col)
             .agg(
                 order_count=("Order_Id", "nunique"),  # How many unique orders
                 total_amount_sum=("Total_Amount", "sum"),  # Total revenue
@@ -155,12 +158,12 @@ class OrdersTransformer(BaseTransformer):
             .reset_index()
         )
     
-    # Fix_me: Delivery date aggregation issue with orders without delivery dates.
-    def agg_date(self, col: str, freq: str) -> pd.DataFrame:
-        df = self.df.assign(
-            date_bucket = self.df[col].dt.to_period(freq), 
-            delivery_days = (self.df["Delivery_Date"] - self.df["Order_Date"]).dt.days
-            )
+    # Fix_me: Delivery date aggregation issue with orders without delivery dates (fixed)
+    def _agg_date(self, df: pd.DataFrame, col: str, freq: str) -> pd.DataFrame:
+        df = df[df[col].notna()].assign(
+            date_bucket=df[col].dt.to_period(freq),
+            delivery_days=(df["Delivery_Date"] - df["Order_Date"]).dt.days
+        )
         return (
             df.groupby("date_bucket")
             .agg(
@@ -176,7 +179,7 @@ class OrdersTransformer(BaseTransformer):
             .reset_index()
         )
 
-    def revenue(self, df: pd.DataFrame) -> Tuple[float, float, float]:
+    def _revenue(self, df: pd.DataFrame) -> Tuple[float, float, float]:
         total_revenue  = float(df["Total_Amount"].sum())
         total_discounts = float(df["Discount_Applied"].sum())
         net_revenue = total_revenue - total_discounts
