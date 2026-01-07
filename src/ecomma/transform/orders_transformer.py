@@ -88,6 +88,7 @@ class OrdersTransformer(BaseTransformer):
 
         df["Promo_Code_Used_Norm"] = (
             df["Promo_Code_Used"]
+            .fillna("NO_PROMO")
             .astype("string")
             .str.strip()
             .str.replace(r"\s+", "_", regex=True)
@@ -120,8 +121,10 @@ class OrdersTransformer(BaseTransformer):
         logger.info("Converted Order_Date and Delivery_Date to datetime format.")
         return df
 
-    # Fix_me: Add None check for schema (prevents runtime crash)
     def _validate(self, df: pd.DataFrame, schema: pa.DataFrameSchema) -> pd.DataFrame:
+        if schema is None:
+            raise ValueError("Schema must be provided! Cannot validate without a schema.")
+        
         try:
             validated_df = schema.validate(df, lazy=True)
             logger.info(f"Validated {len(validated_df)} rows successfully.")
@@ -158,7 +161,6 @@ class OrdersTransformer(BaseTransformer):
             .reset_index()
         )
     
-    # Fix_me: Delivery date aggregation issue with orders without delivery dates (fixed)
     def _agg_date(self, df: pd.DataFrame, col: str, freq: str) -> pd.DataFrame:
         df = df[df[col].notna()].assign(
             date_bucket=df[col].dt.to_period(freq),
