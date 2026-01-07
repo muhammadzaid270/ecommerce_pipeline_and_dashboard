@@ -2,7 +2,7 @@ import pandera as pa
 from pandera.typing import Series
 
 class MarketingSchema(pa.DataFrameModel):
-    Campaign_ID: Series[str] = pa.Field(unique=True, nullable=False)
+    Campaign_Id: Series[str] = pa.Field(unique=True, nullable=False)
     Channel: Series[str] = pa.Field(nullable=False)
     Start_Date: Series[pa.DateTime] = pa.Field(nullable=False)
     End_Date: Series[pa.DateTime] = pa.Field(nullable=False)

@@ -3,7 +3,7 @@ from pandera.typing import Series
 
 class PromoSchema(pa.DataFrameModel):
     # Mandatory (cannot be null)
-    Promo_ID: Series[str] = pa.Field(unique=True, nullable=False)
+    Promo_Id: Series[str] = pa.Field(unique=True, nullable=False)
     Promo_Type: Series[str] = pa.Field(
         isin=["free_shipping", "fixed_amount", "bogo", "bundle_deal", "percentage_off"], 
         nullable=False

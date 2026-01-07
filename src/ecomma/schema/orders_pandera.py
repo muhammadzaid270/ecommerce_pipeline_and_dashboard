@@ -3,8 +3,8 @@ from pandera.typing import Series
 
 class OrderSchema(pa.DataFrameModel):
     # Mandatory (cannot be null)
-    OrderID: Series[int] = pa.Field(unique=True, nullable=False)
-    UserID: Series[int] = pa.Field(gt=0, nullable=False)
+    Order_Id: Series[int] = pa.Field(unique=True, nullable=False)
+    User_Id: Series[int] = pa.Field(gt=0, nullable=False)
     Order_Date: Series[pa.DateTime] = pa.Field(nullable=False)
     Status: Series[str] = pa.Field(
         isin=["COMPLETED", "PENDING", "RETURNED", "CANCELLED", "SHIPPED"], 
@@ -22,7 +22,7 @@ class OrderSchema(pa.DataFrameModel):
     # Optional (can be null)
     Delivery_Date: Series[pa.DateTime] = pa.Field(nullable=True)
     Discount_Applied: Series[float] = pa.Field(ge=0, nullable=True)
-    PromoCode_Used: Series[str] = pa.Field(nullable=True)
+    Promo_Code_Used: Series[str] = pa.Field(nullable=True)
 
     class Config:
         strict = True
