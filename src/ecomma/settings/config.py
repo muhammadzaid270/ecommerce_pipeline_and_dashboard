@@ -2,7 +2,7 @@ import logging
 import sys
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parents[2]
+BASE_DIR = Path(__file__).resolve().parents[3]
 
 RAW_DATA = Path(BASE_DIR) / "data" / "raw"
 PROCESSED_DATA = Path(BASE_DIR) / 'data' / 'processed'
